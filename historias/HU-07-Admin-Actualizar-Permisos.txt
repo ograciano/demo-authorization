@@ -1,0 +1,121 @@
+# HU-07 - Endpoint Admin: Actualizar Permisos de Usuario
+
+Como administrador,
+quiero disponer de un endpoint PUT /api/admin/users/{userId}/permissions que permita actualizar permisos de un usuario específico,
+para otorgar o revocar permisos dinámicamente sin intervención de base de datos.
+
+## Historia de Usuario Enriquecida
+
+### Contexto y Objetivo de Negocio
+Los administradores requieren un mecanismo para modificar dinámicamente los permisos asignados a usuarios. Este endpoint está protegido y solo es accesible por usuarios con rol ADMIN. Permite agregar o revocar permisos (REPORT_READ, REPORT_DOWNLOAD, etc.) de forma granular.
+
+### Descripción Funcional Detallada
+El endpoint PUT /api/admin/users/{userId}/permissions acepta un body con una lista de permisos deseados y reemplaza los permisos actuales del usuario con los nuevos. La operación es atómica: todos los permisos se actualizan o ninguno. El endpoint valida que:
+- El solicitante sea administrador (autenticación JWT + autorización ADMIN).
+- El usuario destino exista.
+- Los permisos solicitados sean válidos.
+Retorna la lista actualizada de permisos del usuario.
+
+### Ejemplos de Respuesta
+**Actualización exitosa (HTTP 200):**
+```json
+{
+  "userId": 5,
+  "permissions": ["REPORT_READ", "REPORT_DOWNLOAD"],
+  "status": "UPDATED",
+  "timestamp": "2026-05-14T11:00:00Z"
+}
+```
+
+**Admin sin autorización (HTTP 403):**
+```json
+{
+  "timestamp": "2026-05-14T11:01:00Z",
+  "status": 403,
+  "error": "Forbidden",
+  "message": "No cuenta con permisos para ejecutar esta operacion",
+  "path": "/api/admin/users/5/permissions"
+}
+```
+
+**Usuario no encontrado (HTTP 404):**
+```json
+{
+  "timestamp": "2026-05-14T11:02:00Z",
+  "status": 404,
+  "error": "Not Found",
+  "message": "Usuario con ID 999 no encontrado",
+  "path": "/api/admin/users/999/permissions"
+}
+```
+
+**Permisos inválidos (HTTP 400):**
+```json
+{
+  "timestamp": "2026-05-14T11:03:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Uno o más permisos son inválidos",
+  "details": "Permisos inválidos: ['INVALID_PERM']. Válidos: REPORT_READ, REPORT_DOWNLOAD",
+  "path": "/api/admin/users/5/permissions"
+}
+```
+
+**Sin autenticación (HTTP 401):**
+```json
+{
+  "timestamp": "2026-05-14T11:04:00Z",
+  "status": 401,
+  "error": "Unauthorized",
+  "message": "Token JWT requerido",
+  "path": "/api/admin/users/5/permissions"
+}
+```
+
+## Criterios de Aceptación
+- [ ] Endpoint PUT /api/admin/users/{userId}/permissions expuesto y protegido.
+- [ ] Solo usuarios autenticados con rol ADMIN pueden acceder (PreAuthorize).
+- [ ] Acepta body JSON con array de permisos: `{"permissions": ["REPORT_READ", "REPORT_DOWNLOAD"]}`.
+- [ ] Retorna HTTP 200 con permisos actualizados si exitoso.
+- [ ] Retorna HTTP 400 si uno o más permisos son inválidos.
+- [ ] Retorna HTTP 403 si no es ADMIN.
+- [ ] Retorna HTTP 404 si usuario no existe.
+- [ ] Retorna HTTP 401 si falta autenticación.
+- [ ] La respuesta incluye userId, permissions[], status y timestamp.
+- [ ] La operación es transaccional: actualiza todo o nada.
+- [ ] Documentado en OpenAPI con anotaciones de seguridad.
+
+## Casos Límite y Validaciones
+- Array de permisos vacío: válido, revoca todos los permisos.
+- Array de permisos null: validar y rechazar con 400.
+- Permiso duplicado en array: remover duplicados.
+- Usuario intenta actualizar sus propios permisos: rechazar (solo ADMIN).
+- Admin intenta actualizar admin: permitir (ADMIN puede cambiar ADMIN).
+
+## Requisitos No Funcionales Relevantes
+- Seguridad: Autenticación JWT + autorización ADMIN.
+- Rendimiento: Actualización en < 100ms.
+- Confiabilidad: Transacción atómica, rollback en error.
+- Auditoría: Registrar cambios de permisos con admin que realizó el cambio, usuario afectado, permisos antes y después.
+- Observabilidad: Logs de cambios sin datos sensibles (solo IDs).
+
+## Requisitos de Testing
+- Pruebas unitarias: Validación permisos, resolución de roles ADMIN.
+- Pruebas de integración: Persistencia cambios, auditoría generada.
+- Pruebas de seguridad: 401 sin token, 403 sin ADMIN, 200 con ADMIN válido.
+- Pruebas de contrato: Estructura response, códigos HTTP.
+
+## Consideraciones Técnicas
+- Backend: AdminPermissionController, AdminPermissionService.
+- Seguridad: @PreAuthorize("@permissionGuard.hasPermission(authentication, 'ADMIN_UPDATE_PERMISSIONS')")
+- DTO: UpdatePermissionsRequestDTO (request), UpdatePermissionsResponseDTO (response).
+- Transacción: ReadWrite, rollback en error.
+- Auditoría: Registrar en tabla audit_log con usuario admin, usuario destino, cambios.
+
+## Sugerencia de Estructura Técnica
+- Crear `AdminPermissionController.updateUserPermissions(@PathVariable Long userId, @RequestBody UpdatePermissionsRequestDTO)`
+- Crear `AdminPermissionService.updatePermissions(Long userId, Set<String> permissions)`
+- Crear `UpdatePermissionsRequestDTO`
+- Crear `UpdatePermissionsResponseDTO`
+- Crear entrada en tabla audit_log para trazabilidad.
+- Documentar en OpenAPI con @SecurityRequirement y códigos 200/400/403/404/401.

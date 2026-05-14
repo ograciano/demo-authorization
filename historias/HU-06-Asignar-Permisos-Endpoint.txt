@@ -1,0 +1,99 @@
+# HU-06 - Endpoint: Asignar Permisos Predeterminados
+
+Como servicio de autorización,
+quiero exponer un endpoint POST /api/permissions/users/{userId} que asigne permisos a un usuario,
+para que authentication-service pueda asignar permisos iniciales durante el registro.
+
+## Historia de Usuario Enriquecida
+
+### Contexto y Objetivo de Negocio
+Durante el registro de un nuevo usuario en authentication-service, se invoca internamente (vía Feign) este endpoint para asignar el permiso predeterminado REPORT_READ. Este mecanismo es transaccional: si falla, se revierte el registro del usuario (rollback atómico).
+
+### Descripción Funcional Detallada
+El endpoint POST /api/permissions/users/{userId} acepta un body con un campo "permission" y asigna ese permiso al usuario. Si el usuario no existe, retorna 404 (causa rollback en auth-service). Si el permiso es inválido, retorna 400. Si el permiso ya está asignado, retorna 200 (idempotencia). La respuesta incluye userId, permission, status y timestamp.
+
+### Ejemplos de Respuesta
+**Asignación exitosa (HTTP 200):**
+```json
+{
+  "userId": 1,
+  "permission": "REPORT_READ",
+  "status": "ASSIGNED",
+  "timestamp": "2026-05-14T10:35:00Z"
+}
+```
+
+**Permiso ya asignado (HTTP 200 - idempotencia):**
+```json
+{
+  "userId": 1,
+  "permission": "REPORT_READ",
+  "status": "ALREADY_ASSIGNED",
+  "timestamp": "2026-05-14T10:35:00Z"
+}
+```
+
+**Permiso inválido (HTTP 400):**
+```json
+{
+  "timestamp": "2026-05-14T10:36:00Z",
+  "status": 400,
+  "error": "Bad Request",
+  "message": "Permiso inválido",
+  "details": "Permiso 'INVALID_PERM' no es válido. Válidos: REPORT_READ, REPORT_DOWNLOAD",
+  "path": "/api/permissions/users/1"
+}
+```
+
+**Usuario no encontrado (HTTP 404):**
+```json
+{
+  "timestamp": "2026-05-14T10:37:00Z",
+  "status": 404,
+  "error": "Not Found",
+  "message": "Usuario con ID 999 no encontrado",
+  "path": "/api/permissions/users/999"
+}
+```
+
+## Criterios de Aceptación
+- [ ] Endpoint POST /api/permissions/users/{userId} expuesto y funcional.
+- [ ] Acepta body JSON con campo "permission".
+- [ ] Retorna HTTP 200 si asignación exitosa.
+- [ ] Retorna HTTP 200 si permiso ya estaba asignado (idempotencia).
+- [ ] Retorna HTTP 400 si permiso inválido.
+- [ ] Retorna HTTP 404 si usuario no existe.
+- [ ] La respuesta incluye userId, permission, status y timestamp.
+- [ ] El endpoint es documentado como interno (OpenAPI con descripción "Uso interno").
+- [ ] Validación: userId debe ser numérico > 0.
+- [ ] Validación: permission debe estar en lista blanca (REPORT_READ, REPORT_DOWNLOAD, etc.).
+
+## Casos Límite y Validaciones
+- Permiso vacío o null: validar y rechazar con 400.
+- Permiso inválido: validar lista blanca y rechazar con 400.
+- Usuario con ID negativo: validar y rechazar con 400.
+- Asignación concurrente del mismo permiso: idempotencia, no duplicar.
+
+## Requisitos No Funcionales Relevantes
+- Seguridad: Solo consumible internamente (documentar en OpenAPI).
+- Rendimiento: Asignación en < 50ms.
+- Confiabilidad: Operación idempotente, transaccional.
+- Observabilidad: Registrar asignaciones con userId y permission (sin datos sensibles).
+
+## Requisitos de Testing
+- Pruebas unitarias: Validación de permisos, idempotencia.
+- Pruebas de integración: Persistencia, consulta posterior.
+- Pruebas de transacción: Verificar rollback si falla.
+
+## Consideraciones Técnicas
+- Backend: PermissionController, PermissionService, UserPermissionRepository.
+- Anotaciones OpenAPI: @Operation, @ApiResponse, @SecurityRequirements() (vacío).
+- DTO: PermissionAssignmentDTO (request), AssignmentResponseDTO (response).
+- Transacción: ReadWrite, rollback en error.
+
+## Sugerencia de Estructura Técnica
+- Crear `PermissionController.assignPermission(@PathVariable Long userId, @RequestBody PermissionAssignmentDTO)`
+- Crear `PermissionService.assignPermission(Long userId, String permission)`
+- Crear `PermissionAssignmentDTO`
+- Crear `AssignmentResponseDTO`
+- Documentar en OpenAPI como endpoint interno (no público)
